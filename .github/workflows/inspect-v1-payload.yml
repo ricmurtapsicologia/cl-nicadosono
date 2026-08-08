@@ -1,0 +1,60 @@
+name: Inspect archived TCC-I source payload
+on:
+  push:
+    branches: [v2-rc1]
+permissions:
+  contents: write
+jobs:
+  inspect:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v2-rc1
+          fetch-depth: 0
+      - name: Inspect archived payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tcci-inspect
+          for f in payload/p00.txt payload/p01.txt payload/p02.txt payload/p03.txt payload/p04.txt payload/p05.txt; do
+            test -s "$f"
+          done
+          cat payload/p00.txt payload/p01.txt payload/p02.txt payload/p03.txt payload/p04.txt payload/p05.txt | tr -d '\r\n ' | base64 -d > /tmp/tcci-inspect/archive.bin
+          {
+            echo '# Diagnóstico do payload histórico'
+            echo
+            echo '```text'
+            file /tmp/tcci-inspect/archive.bin
+            echo "bytes=$(wc -c < /tmp/tcci-inspect/archive.bin)"
+            echo "sha256=$(sha256sum /tmp/tcci-inspect/archive.bin | awk '{print $1}')"
+            echo '```'
+            echo
+            echo '## Conteúdo detectado'
+            echo '```text'
+            if gzip -t /tmp/tcci-inspect/archive.bin 2>/dev/null; then
+              echo 'gzip: OK'
+              if gzip -dc /tmp/tcci-inspect/archive.bin | tar -tf - >/tmp/tcci-inspect/list.txt 2>/dev/null; then
+                echo 'tar.gz: OK'
+                head -120 /tmp/tcci-inspect/list.txt
+                echo "files=$(wc -l < /tmp/tcci-inspect/list.txt)"
+              else
+                echo 'gzip válido; não é tar.gz'
+                gzip -dc /tmp/tcci-inspect/archive.bin | file - || true
+              fi
+            elif unzip -t /tmp/tcci-inspect/archive.bin >/dev/null 2>&1; then
+              echo 'zip: OK'
+              unzip -l /tmp/tcci-inspect/archive.bin | head -120
+            else
+              echo 'formato não reconhecido como gzip/tar ou zip'
+            fi
+            echo '```'
+          } > PAYLOAD_DIAG.md
+      - name: Commit diagnostic
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add PAYLOAD_DIAG.md
+          git commit -m 'ci: record archived payload diagnostic' || exit 0
+          git push origin HEAD:v2-rc1
