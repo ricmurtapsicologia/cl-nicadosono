@@ -1,0 +1,60 @@
+name: Bootstrap TCC-I publication
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore project source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat bootstrap/chunk-*.txt | base64 --decode > /tmp/tcci.tar.xz
+          tar -xJf /tmp/tcci.tar.xz -C .
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y pandoc libcairo2 libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info
+          python -m pip install --upgrade pip
+          python -m pip install weasyprint pypdf cairosvg
+
+      - name: Build publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/make_assets.py
+          bash scripts/build_all.sh
+
+      - name: Commit generated publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf bootstrap
+          rm -f .github/workflows/bootstrap.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes to commit"
+            exit 0
+          fi
+          git commit -m "Publish TCC-I v1.0"
+          git push origin HEAD:main
