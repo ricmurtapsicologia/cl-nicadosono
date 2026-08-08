@@ -1,1 +1,0 @@
-Publicação em substituição atômica: este arquivo será removido no commit final.
