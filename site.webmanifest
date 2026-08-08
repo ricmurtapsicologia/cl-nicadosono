@@ -1,0 +1,11 @@
+{
+  "name": "TCC-I na Prática Clínica",
+  "short_name": "TCC-I",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f8f5ef",
+  "theme_color": "#173f46",
+  "description": "Livro clínico de Terapia Cognitivo-Comportamental para Insônia, com foco em avaliação, formulação, intervenção, teleatendimento e raciocínio clínico.",
+  "icons": [{"src":"assets/cover/cover.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}

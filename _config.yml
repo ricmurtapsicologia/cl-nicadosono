@@ -1,0 +1,16 @@
+title: "TCC-I na Prática Clínica"
+lang: pt-BR
+url: "https://ricmurtapsicologia.github.io"
+baseurl: "/clinicadosono"
+markdown: kramdown
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+exclude:
+  - README.md
+  - QA_REPORT.md
+  - REVIEWER_PROTOCOL.md
+  - src
+  - tests
+  - scripts
