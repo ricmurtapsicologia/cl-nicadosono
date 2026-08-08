@@ -1,4 +1,4 @@
-name: Bootstrap TCC-I publication
+name: Bootstrap Clinicadosono publication
 
 on:
   push:
@@ -24,8 +24,39 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat bootstrap/chunk-*.txt | base64 --decode > /tmp/tcci.tar.xz
-          tar -xJf /tmp/tcci.tar.xz -C .
+          cat bootstrap/chunk-*.txt | base64 --decode > /tmp/clinicadosono.tar.xz
+          tar -xJf /tmp/clinicadosono.tar.xz -C .
+
+      - name: Make project portable and update repository naming
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          scripts = Path('scripts')
+          for path in scripts.glob('*.py'):
+              text = path.read_text(encoding='utf-8')
+              text = text.replace("ROOT=Path('/mnt/data/tcci-pratica-clinica')", "ROOT=Path(__file__).resolve().parents[1]")
+              text = text.replace("ROOT = Path('/mnt/data/tcci-pratica-clinica')", "ROOT = Path(__file__).resolve().parents[1]")
+              path.write_text(text, encoding='utf-8')
+
+          publishing = Path('PUBLISHING.md')
+          if publishing.exists():
+              text = publishing.read_text(encoding='utf-8')
+              text = text.replace('`tcci-pratica-clinica`', '`clinicadosono`')
+              text = text.replace('repositório chamado, por exemplo,', 'repositório')
+              publishing.write_text(text, encoding='utf-8')
+
+          readme = Path('README.md')
+          if readme.exists():
+              text = readme.read_text(encoding='utf-8')
+              marker = '**Repositório:** `clinicadosono`  \n'
+              if marker not in text:
+                  anchor = '**Versão:** 1.0  \n'
+                  text = text.replace(anchor, anchor + marker)
+              readme.write_text(text, encoding='utf-8')
+          PY
 
       - name: Install build dependencies
         shell: bash
@@ -43,6 +74,17 @@ jobs:
           python scripts/make_assets.py
           bash scripts/build_all.sh
 
+      - name: Verify publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f web/index.html
+          test -f exports/tcci-pratica-clinica.epub
+          test -f exports/tcci-pratica-clinica-digital.pdf
+          test -f exports/tcci-pratica-clinica-print.pdf
+          test -f exports/caderno-clinico-tcci.pdf
+          grep -q 'TCC-I na Prática Clínica' web/index.html
+
       - name: Commit generated publication
         shell: bash
         run: |
@@ -56,5 +98,5 @@ jobs:
             echo "No generated changes to commit"
             exit 0
           fi
-          git commit -m "Publish TCC-I v1.0"
+          git commit -m "Publish Clinicadosono v1.0"
           git push origin HEAD:main
