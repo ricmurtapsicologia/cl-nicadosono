@@ -1,10 +1,11 @@
-name: Bootstrap TCC-I publication
+name: Build and promote TCC-I v2 RC1
 
 on:
   push:
-    branches: [main]
+    branches: [v2-source-build]
     paths:
-      - 'bootstrap/**'
+      - 'v2-overlay/**'
+      - 'v2-extra/**'
       - '.github/workflows/bootstrap.yml'
   workflow_dispatch:
 
@@ -12,49 +13,144 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  build-release:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Checkout
+      - name: Checkout v2 source-build branch
         uses: actions/checkout@v4
         with:
+          ref: v2-source-build
           fetch-depth: 0
 
-      - name: Restore project source
+      - name: Restore exact original source
         shell: bash
         run: |
           set -euo pipefail
+          test "$(find bootstrap -name 'chunk-*.txt' | wc -l)" -eq 13
           cat bootstrap/chunk-*.txt | base64 --decode > /tmp/tcci.tar.xz
+          xz -t /tmp/tcci.tar.xz
           tar -xJf /tmp/tcci.tar.xz -C .
+          test "$(find content -maxdepth 1 -name '*.md' | wc -l)" -ge 30
+          test -s references/references.bib
+          test -s data/manifest.json
 
-      - name: Install build dependencies
+      - name: Restore and verify v2 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find v2-overlay -name 'part-*.txt' | wc -l)" -eq 5
+          cat v2-overlay/part-*.txt | tr -d '\r\n ' | base64 --decode > /tmp/v2overlay.tar.gz
+          echo '90a942c57bbc3298e786aa7f4616a887dfdab8eb9c50b9b4a122246b3e2702c4  /tmp/v2overlay.tar.gz' | sha256sum -c -
+          tar -xzf /tmp/v2overlay.tar.gz -C .
+          cp v2-extra/print-v2.css src/styles/print-v2.css
+          cp v2-extra/epub-v2.css src/styles/epub-v2.css
+
+      - name: Install publication dependencies
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y pandoc libcairo2 libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info
+          sudo apt-get install -y pandoc poppler-utils libcairo2 libpango-1.0-0 libpangoft2-1.0-0 libgdk-pixbuf-2.0-0 libffi-dev shared-mime-info fonts-dejavu-core
           python -m pip install --upgrade pip
-          python -m pip install weasyprint pypdf cairosvg
+          python -m pip install weasyprint pypdf cairosvg beautifulsoup4 PyYAML Pillow
 
-      - name: Build publication
+      - name: Prepare single v2 source tree
         shell: bash
         run: |
           set -euo pipefail
           python scripts/make_assets.py
-          bash scripts/build_all.sh
+          mkdir -p src
+          rm -rf src/content src/assets src/references src/editorial
+          cp -a content src/content
+          cp -a assets src/assets
+          cp -a references src/references
+          cp -a editorial src/editorial
+          mkdir -p src/data src/styles
+          cp data/manifest.json src/data/manifest.json
+          cp v2-extra/print-v2.css src/styles/print-v2.css
+          cp v2-extra/epub-v2.css src/styles/epub-v2.css
+          test "$(find src/content -maxdepth 1 -name '*.md' | wc -l)" -ge 30
+          test "$(find src/assets/diagrams -name '*.svg' | wc -l)" -ge 9
+          test "$(find src/assets/icons -name '*.svg' | wc -l)" -ge 14
 
-      - name: Commit generated publication
+      - name: Build all publication formats
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf bootstrap
-          rm -f .github/workflows/bootstrap.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm run build
+
+      - name: Execute release quality gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test
+          test "$(find dist/web/capitulos -mindepth 2 -maxdepth 2 -name index.html | wc -l)" -eq 28
+          ! grep -R -q 'atob(' dist/web
+          ! grep -R -q 'payload4/' dist/web
+          test -s dist/exports/tcci-pratica-clinica.epub
+          test -s dist/exports/tcci-pratica-clinica-digital.pdf
+          test -s dist/exports/tcci-pratica-clinica-print.pdf
+          test -s dist/exports/caderno-clinico-tcci.pdf
+
+      - name: Stage clean public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/tcci-release
+          cp -a dist/web/. /tmp/tcci-release/
+          mkdir -p /tmp/tcci-release/exports
+          cp -a dist/exports/. /tmp/tcci-release/exports/
+          cp -a src /tmp/tcci-release/src
+          cp -a scripts /tmp/tcci-release/scripts
+          cp -a tests /tmp/tcci-release/tests
+          cp -a clinical-tools /tmp/tcci-release/clinical-tools
+          cp -a CITATION.cff REVIEWER_PROTOCOL.md QA_REPORT.md package.json /tmp/tcci-release/
+          cat > /tmp/tcci-release/README.md <<'EOF'
+          # TCC-I na Prática Clínica — v2.0.0-rc1
+
+          Livro clínico, científico e educacional para psicólogos com formação prévia em TCC.
+
+          ## Publicação
+          - Web Book: GitHub Pages, mobile-first, HTML estático e PWA.
+          - EPUB 3 refluível com metadados de acessibilidade.
+          - PDF digital 17 × 24 cm.
+          - PDF print 17 × 24 cm.
+          - Caderno Clínico A4.
+
+          ## Arquitetura
+          Uma única fonte editorial em `src/` gera todas as saídas. Os 28 capítulos web possuem URLs próprias e permanecem legíveis sem JavaScript. JavaScript é usado apenas para busca, progresso, favoritos, notas locais, preferências e exercícios interativos.
+
+          ## Privacidade
+          O GitHub Pages não é prontuário. Progresso e notas ficam localmente no navegador; não há envio de dados clínicos para servidor.
+
+          ## Estado editorial
+          Release candidate `2.0.0-rc1`. A passagem para `2.0.0` final depende de revisão clínica humana independente e prova física da edição print. Consulte `QA_REPORT.md` e `REVIEWER_PROTOCOL.md`.
+          EOF
+          printf 'v2.0.0-rc1\n' > /tmp/tcci-release/VERSION
+          printf '' > /tmp/tcci-release/.nojekyll
+          cat > /tmp/tcci-release/CHANGELOG.md <<'EOF'
+          # Changelog
+
+          ## 2.0.0-rc1 — 2026-08-08
+          - Web Book reconstruído diretamente da fonte-mestre.
+          - 28 URLs HTML reais, sem Base64/atob para leitura.
+          - PWA/offline, busca, progresso, favoritos, notas locais e preferências.
+          - Rotas de aprendizagem e casos longitudinais navegáveis.
+          - Interatividade didática com armazenamento local.
+          - EPUB, PDF digital, PDF print e Caderno recompilados da mesma fonte.
+          - Gates automatizados de paridade, links, semântica e integridade dos artefatos.
+          EOF
+
+      - name: Replace repository tree with validated release candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a /tmp/tcci-release/. .
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          if git diff --cached --quiet; then
-            echo "No generated changes to commit"
-            exit 0
-          fi
-          git commit -m "Publish TCC-I v1.0"
-          git push origin HEAD:main
+          git commit -m 'release: TCC-I v2.0.0-rc1 — unified source, web, EPUB and PDFs'
+          git push --force origin HEAD:main
